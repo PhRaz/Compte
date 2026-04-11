@@ -3,6 +3,7 @@
 Client CLI pour éditer la feuille de compte Google Sheets.
 """
 
+import os
 import sys
 from datetime import datetime
 
@@ -29,6 +30,60 @@ COL_PHIL_DOIT = 7
 # COL_SOLDE_PHIL = 9  (formule)
 # COL_TOTAL_CATH = 10 (formule)
 # COL_TOTAL_PHIL = 11 (formule)
+
+
+HEADERS = ["Date", "Quoi", "Catégorie", "CathPaye", "PhilPaye", "CathDoit", "PhilDoit", "SoldeCath", "SoldePhil", "TotalCath", "TotalPhil"]
+COL_WIDTHS = [10, 22, 13,  8,  8,  8,  8,  9,  9,  9,  9]
+SOLDE_COLS = {7, 8, 9, 10}  # indices de SoldeCath, SoldePhil, TotalCath, TotalPhil
+
+ANSI_GREEN = "\033[32m"
+ANSI_RED   = "\033[31m"
+ANSI_RESET = "\033[0m"
+
+
+def get_last_rows(ws, n=10):
+    """Retourne les n dernières lignes de données (sans l'en-tête)."""
+    all_values = ws.get_all_values()
+    data = all_values[1:]  # skip header
+    return data[-n:] if len(data) >= n else data
+
+
+def display_last_rows(rows):
+    """Affiche un tableau formaté des dernières lignes dans le terminal."""
+    os.system("clear")
+    sep = "+" + "+".join("-" * (w + 2) for w in COL_WIDTHS) + "+"
+
+    def fmt_cell(cell, width, colored=False):
+        text = str(cell)[:width]
+        try:
+            float(str(cell).replace(",", ".").replace(" ", ""))
+            padded = f"{text:>{width}}"  # aligné à droite pour les nombres
+        except ValueError:
+            padded = f"{text:<{width}}"  # aligné à gauche pour le texte
+        if colored:
+            try:
+                val = float(str(cell).replace(",", ".").replace(" ", ""))
+                color = ANSI_GREEN if val > 0 else ANSI_RED if val < 0 else ""
+                return f" {color}{padded}{ANSI_RESET if color else ''} "
+            except ValueError:
+                pass
+        return f" {padded} "
+
+    def fmt_row(cells, header=False):
+        padded = list(cells) + [""] * (len(HEADERS) - len(cells))
+        parts = [
+            fmt_cell(padded[i], w, colored=(not header and i in SOLDE_COLS))
+            for i, w in enumerate(COL_WIDTHS)
+        ]
+        return "|" + "|".join(parts) + "|"
+
+    print(sep)
+    print(fmt_row(HEADERS, header=True))
+    print(sep)
+    for row in rows:
+        print(fmt_row(row))
+    print(sep)
+    print()
 
 
 def connect_sheet():
@@ -136,7 +191,8 @@ def build_row(ws, new_row_index):
 
 def saisir_ligne(ws):
     """Saisie interactive d'une nouvelle ligne."""
-    print("\n--- Nouvelle opération ---\n")
+    display_last_rows(get_last_rows(ws))
+    print("--- Nouvelle opération ---\n")
 
     # Récupération des valeurs existantes pour autocomplétion
     quoi_values = get_existing_values(ws, COL_QUOI)
@@ -219,7 +275,8 @@ def saisir_ligne(ws):
     ]
 
     ws.append_row(row, value_input_option="USER_ENTERED")
-    print(f"\n  Ligne ajoutée (ligne {new_row_index}) ✓")
+    display_last_rows(get_last_rows(ws))
+    print(f"  Ligne ajoutée (ligne {new_row_index}) ✓")
 
 
 def main():

@@ -167,8 +167,9 @@ def saisir_ligne(ws):
                 # CathDoit = formule → PhilDoit = formule aussi, on ne demande pas
                 val = None
             else:
-                total = (fields.get("cath_paye", 0) + fields.get("phil_paye", 0)) / 2
-                val = ask_float("PhilDoit", default_label=f"formule ={total:.2f}", allow_empty=True)
+                # CathDoit saisi → PhilDoit calculé automatiquement
+                val = fields["cath_paye"] + fields["phil_paye"] - fields["cath_doit"]
+                print(f"PhilDoit : {val:.2f}  (= CathPaye + PhilPaye - CathDoit)")
 
         fields[field] = val
         current += 1

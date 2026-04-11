@@ -121,8 +121,8 @@ def build_row(ws, new_row_index):
     phil_doit_formula = f"=(D{r}+E{r})/2"
     solde_cath_formula = f"=D{r}-F{r}"
     solde_phil_formula = f"=E{r}-G{r}"
-    total_cath_formula = f"=SUM(H2:H{r})"
-    total_phil_formula = f"=SUM(I2:I{r})"
+    total_cath_formula = f"=SUM($H$2:H{r})"
+    total_phil_formula = f"=SUM($I$2:I{r})"
 
     return (
         cath_doit_formula,

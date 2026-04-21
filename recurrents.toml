@@ -1,0 +1,55 @@
+# Opérations récurrentes — insérées automatiquement au démarrage si absentes du tableau.
+#
+# Champs disponibles :
+#   quoi        = intitulé (obligatoire)
+#   categorie   = catégorie (obligatoire)
+#   chaque      = jour de la semaine en français : lundi, mardi, … dimanche
+#   chaque_mois = jour du mois en chiffre : 1 à 31  (les mois trop courts sont sautés)
+#                 → utiliser chaque OU chaque_mois (obligatoire, pas les deux)
+#   depuis      = "JJ/MM/AAAA" — date de début (défaut : 1er janvier de l'année de la feuille)
+#   phil_paye   = montant payé par Philippe (défaut 0)
+#   cath_paye   = montant payé par Catherine (défaut 0)
+#   cath_doit   = part de Catherine (si absent → formule partage égal automatique)
+
+[[recurrent]]
+quoi      = "poche"
+categorie = "Antoine"
+chaque    = "lundi"
+phil_paye = 10
+depuis    = "06/01/2025"  # premier lundi de 2025
+
+[[recurrent]]
+quoi = "edf"
+categorie= "maison"
+chaque_mois= 1
+phil_paye= 113
+depuis    = "01/01/2025"
+
+[[recurrent]]
+quoi = "freebox"
+categorie= "maison"
+chaque_mois= 1
+phil_paye= 39.99
+depuis    = "01/01/2025"
+
+[[recurrent]]
+quoi = "freemobile"
+categorie= "tel Cath"
+chaque_mois= 1
+phil_paye= 16
+cath_doit= 16
+depuis    = "01/01/2025"
+
+[[recurrent]]
+quoi = "freemobile"
+categorie= "tel Antoine"
+chaque_mois= 1
+phil_paye= 16
+depuis    = "01/01/2025"
+
+[[recurrent]]
+quoi = "freemobile"
+categorie= "caméra"
+chaque_mois= 1
+phil_paye= 3
+depuis    = "01/04/2025"

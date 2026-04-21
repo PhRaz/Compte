@@ -3,9 +3,11 @@
 Client CLI pour éditer la feuille de compte Google Sheets.
 """
 
+import calendar
 import os
 import sys
-from datetime import datetime
+import tomllib
+from datetime import datetime, date, timedelta
 
 import gspread
 from prompt_toolkit import prompt
@@ -189,6 +191,132 @@ def build_row(ws, new_row_index):
     )
 
 
+JOURS_SEMAINE = {
+    "lundi": 0, "mardi": 1, "mercredi": 2, "jeudi": 3,
+    "vendredi": 4, "samedi": 5, "dimanche": 6,
+}
+
+
+def sync_recurrents(ws):
+    """Insère les opérations récurrentes manquantes depuis recurrents.toml."""
+    config_path = "recurrents.toml"
+    if not os.path.exists(config_path):
+        return
+
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+
+    recurrents = config.get("recurrent", [])
+    if not recurrents:
+        return
+
+    all_values = ws.get_all_values()
+    existing = {
+        (row[0].strip(), row[1].strip().lower(), row[2].strip().lower())
+        for row in all_values[1:]
+        if len(row) >= 3
+    }
+
+    today = date.today()
+    sheet_year = int(SHEET_NAME)
+    rows_to_add = []
+
+    for rec in recurrents:
+        quoi = rec["quoi"]
+        categorie = rec["categorie"]
+        cath_paye = float(rec.get("cath_paye", 0))
+        phil_paye = float(rec.get("phil_paye", 0))
+        cath_doit = rec.get("cath_doit", None)
+
+        if "depuis" in rec:
+            depuis = datetime.strptime(rec["depuis"], "%d/%m/%Y").date()
+        else:
+            depuis = date(sheet_year, 1, 1)
+
+        chaque = rec.get("chaque", "").lower()
+        chaque_mois = rec.get("chaque_mois", None)
+
+        if chaque_mois is not None:
+            jour = int(chaque_mois)
+            if not (1 <= jour <= 31):
+                print(f"  recurrents.toml : chaque_mois '{jour}' invalide pour '{quoi}', ignoré.")
+                continue
+            y, m = depuis.year, depuis.month
+            while True:
+                if jour <= calendar.monthrange(y, m)[1]:
+                    current = date(y, m, jour)
+                    if current >= depuis:
+                        break
+                if m == 12:
+                    y, m = y + 1, 1
+                else:
+                    m += 1
+            while current < today:
+                date_str = f"{current.day:02d}/{current.month:02d}/{current.year}"
+                if (date_str, quoi.lower(), categorie.lower()) not in existing:
+                    rows_to_add.append((current, date_str, quoi, categorie, cath_paye, phil_paye, cath_doit))
+                if current.month == 12:
+                    y, m = current.year + 1, 1
+                else:
+                    y, m = current.year, current.month + 1
+                # Cherche le prochain mois où ce jour existe
+                for _ in range(12):
+                    if jour <= calendar.monthrange(y, m)[1]:
+                        current = date(y, m, jour)
+                        break
+                    if m == 12:
+                        y, m = y + 1, 1
+                    else:
+                        m += 1
+                else:
+                    break
+
+        elif chaque in JOURS_SEMAINE:
+            weekday = JOURS_SEMAINE[chaque]
+            delta = (weekday - depuis.weekday()) % 7
+            current = depuis + timedelta(days=delta)
+            while current < today:
+                date_str = f"{current.day:02d}/{current.month:02d}/{current.year}"
+                if (date_str, quoi.lower(), categorie.lower()) not in existing:
+                    rows_to_add.append((current, date_str, quoi, categorie, cath_paye, phil_paye, cath_doit))
+                current += timedelta(days=7)
+
+        else:
+            print(f"  recurrents.toml : 'chaque' ou 'chaque_mois' manquant/invalide pour '{quoi}', ignoré.")
+            continue
+
+    if not rows_to_add:
+        return
+
+    rows_to_add.sort(key=lambda x: x[0])
+    print(f"  {len(rows_to_add)} opération(s) récurrente(s) manquante(s) → insertion en cours...")
+
+    next_row = len(all_values) + 1
+    batch = []
+    for _, date_str, quoi, categorie, cath_paye, phil_paye, cath_doit in rows_to_add:
+        r = next_row
+        if cath_doit is None:
+            cd = f"=(D{r}+E{r})/2"
+            pd_val = f"=(D{r}+E{r})/2"
+        else:
+            cd = float(cath_doit)
+            pd_val = cath_paye + phil_paye - cd
+        batch.append([
+            date_str, quoi, categorie,
+            cath_paye or 0,
+            phil_paye or 0,
+            cd, pd_val,
+            f"=D{r}-F{r}",
+            f"=E{r}-G{r}",
+            f"=SUM($H$2:H{r})",
+            f"=SUM($I$2:I{r})",
+        ])
+        next_row += 1
+
+    ws.append_rows(batch, value_input_option="USER_ENTERED")
+    print(f"  {len(batch)} ligne(s) ajoutée(s).\n")
+
+
 def saisir_ligne(ws):
     """Saisie interactive d'une nouvelle ligne."""
     display_last_rows(get_last_rows(ws))
@@ -290,6 +418,7 @@ def main():
         sys.exit(1)
 
     print(f"Connecté à : {ws.spreadsheet.title} / {ws.title}")
+    sync_recurrents(ws)
 
     while True:
         try:

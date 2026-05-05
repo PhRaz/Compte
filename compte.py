@@ -335,14 +335,28 @@ def fix_formula_errors(ws, row_index, user_cols):
         print("\n  Erreur(s) dans la ligne insérée :")
         for col, label, cell_val in errors:
             print(f"    {label} → {cell_val}")
-        print("  Resaisissez les valeurs ci-dessous (ou laissez vide pour abandonner) :")
-        for col, label, _ in errors:
-            raw = prompt(f"  {label} : ").strip()
-            if not raw:
-                print("  Correction abandonnée. Corrigez directement dans Google Sheets.")
-                return
-            cell_addr = gspread.utils.rowcol_to_a1(row_index, col)
-            ws.update([[raw]], cell_addr, value_input_option="USER_ENTERED")
+
+        needs_doit_reset = any(col == COL_CATH_DOIT for col, _, _ in errors)
+        prompted_errors = [(col, label, cv) for col, label, cv in errors if col != COL_CATH_DOIT]
+
+        if prompted_errors:
+            print("  Resaisissez les valeurs ci-dessous (ou laissez vide pour abandonner) :")
+            for col, label, _ in prompted_errors:
+                raw = prompt(f"  {label} : ").strip()
+                if not raw:
+                    print("  Correction abandonnée. Corrigez directement dans Google Sheets.")
+                    return
+                cell_addr = gspread.utils.rowcol_to_a1(row_index, col)
+                ws.update([[raw]], cell_addr, value_input_option="USER_ENTERED")
+
+        if needs_doit_reset:
+            r = row_index
+            ws.update(
+                [[f"=(D{r}+E{r})/2", f"=(D{r}+E{r})/2"]],
+                f"F{r}:G{r}",
+                value_input_option="USER_ENTERED",
+            )
+            print("  CathDoit et PhilDoit réinitialisés à la formule 50/50.")
 
 
 def saisir_ligne(ws):

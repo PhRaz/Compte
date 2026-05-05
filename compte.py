@@ -130,7 +130,7 @@ def parse_date(raw):
 
 
 def ask_float(label, default=None, default_label=None, allow_empty=False):
-    """Demande un nombre flottant. Retourne default si vide (ou None si allow_empty)."""
+    """Demande un nombre flottant ou une formule (=...). Retourne default si vide."""
     hint = f" [{default_label or default}]" if (default is not None or default_label) else ""
     while True:
         raw = prompt(f"{label}{hint} : ").strip()
@@ -139,10 +139,12 @@ def ask_float(label, default=None, default_label=None, allow_empty=False):
                 return None
             if default is not None:
                 return default
+        if raw.startswith("="):
+            return raw
         try:
             return float(raw.replace(",", "."))
         except ValueError:
-            print("  Valeur invalide, entrez un nombre (ex: 12.50)")
+            print("  Valeur invalide, entrez un nombre (ex: 12.50) ou une formule (ex: =10+5)")
 
 
 def ask_date():
@@ -317,6 +319,32 @@ def sync_recurrents(ws):
     print(f"  {len(batch)} ligne(s) ajoutée(s).\n")
 
 
+SHEETS_ERRORS = {"#ERROR!", "#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A"}
+
+def fix_formula_errors(ws, row_index, user_cols):
+    """Vérifie les cellules en erreur et propose de les re-saisir. user_cols: dict {col_index: label}."""
+    while True:
+        row_vals = ws.row_values(row_index)
+        errors = [
+            (col, label, row_vals[col - 1] if col - 1 < len(row_vals) else "")
+            for col, label in user_cols.items()
+            if (row_vals[col - 1] if col - 1 < len(row_vals) else "") in SHEETS_ERRORS
+        ]
+        if not errors:
+            break
+        print("\n  Erreur(s) dans la ligne insérée :")
+        for col, label, cell_val in errors:
+            print(f"    {label} → {cell_val}")
+        print("  Resaisissez les valeurs ci-dessous (ou laissez vide pour abandonner) :")
+        for col, label, _ in errors:
+            raw = prompt(f"  {label} : ").strip()
+            if not raw:
+                print("  Correction abandonnée. Corrigez directement dans Google Sheets.")
+                return
+            cell_addr = gspread.utils.rowcol_to_a1(row_index, col)
+            ws.update([[raw]], cell_addr, value_input_option="USER_ENTERED")
+
+
 def saisir_ligne(ws):
     """Saisie interactive d'une nouvelle ligne."""
     display_last_rows(get_last_rows(ws))
@@ -344,15 +372,21 @@ def saisir_ligne(ws):
         elif field == "phil_paye":
             val = ask_float("PhilPaye", default=0.0)
         elif field == "cath_doit":
-            total = (fields.get("cath_paye", 0) + fields.get("phil_paye", 0)) / 2
-            val = ask_float("CathDoit", default_label=f"formule ={total:.2f}", allow_empty=True)
+            cp, pp = fields.get("cath_paye", 0), fields.get("phil_paye", 0)
+            has_formula = isinstance(cp, str) or isinstance(pp, str)
+            if has_formula:
+                val = ask_float("CathDoit", default_label="formule (paye contient une formule)", allow_empty=True)
+            else:
+                total = (cp + pp) / 2
+                val = ask_float("CathDoit", default_label=f"formule ={total:.2f}", allow_empty=True)
         elif field == "phil_doit":
-            if fields.get("cath_doit") is None:
-                # CathDoit = formule → PhilDoit = formule aussi, on ne demande pas
+            cp, pp = fields.get("cath_paye", 0), fields.get("phil_paye", 0)
+            cd = fields.get("cath_doit")
+            has_formula = isinstance(cp, str) or isinstance(pp, str) or isinstance(cd, str)
+            if cd is None or has_formula:
                 val = None
             else:
-                # CathDoit saisi → PhilDoit calculé automatiquement
-                val = fields["cath_paye"] + fields["phil_paye"] - fields["cath_doit"]
+                val = cp + pp - cd
                 print(f"PhilDoit : {val:.2f}  (= CathPaye + PhilPaye - CathDoit)")
 
         fields[field] = val
@@ -364,7 +398,8 @@ def saisir_ligne(ws):
     cath_doit = fields.get("cath_doit")
     phil_doit = fields.get("phil_doit")
 
-    if cath_doit is not None and phil_doit is not None:
+    has_formula = any(isinstance(v, str) for v in [cath_paye, phil_paye, cath_doit, phil_doit])
+    if not has_formula and cath_doit is not None and phil_doit is not None:
         total_paye = cath_paye + phil_paye
         total_du = cath_doit + phil_doit
         if abs(total_paye - total_du) > 0.01:
@@ -392,8 +427,8 @@ def saisir_ligne(ws):
         fields["date"],
         fields["quoi"],
         fields["categorie"],
-        fields["cath_paye"] if fields["cath_paye"] != 0.0 else 0,
-        fields["phil_paye"] if fields["phil_paye"] != 0.0 else 0,
+        fields["cath_paye"] if fields["cath_paye"] not in (0, 0.0) else 0,
+        fields["phil_paye"] if fields["phil_paye"] not in (0, 0.0) else 0,
         fields["cath_doit"] if fields["cath_doit"] is not None else cath_doit_formula,
         fields["phil_doit"] if fields["phil_doit"] is not None else phil_doit_formula,
         solde_cath_formula,
@@ -403,6 +438,10 @@ def saisir_ligne(ws):
     ]
 
     ws.append_row(row, value_input_option="USER_ENTERED")
+
+    user_cols = {COL_CATH_PAYE: "CathPaye", COL_PHIL_PAYE: "PhilPaye", COL_CATH_DOIT: "CathDoit"}
+    fix_formula_errors(ws, new_row_index, user_cols)
+
     display_last_rows(get_last_rows(ws))
     print(f"  Ligne ajoutée (ligne {new_row_index}) ✓")
 

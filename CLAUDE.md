@@ -25,6 +25,6 @@ Single-file CLI (`compte.py`) that appends rows to a Google Sheets spreadsheet t
 
 **Key constants** at top of `compte.py`: `SPREADSHEET_ID`, `SHEET_NAME` (year, e.g. `"2025"`), `CREDENTIALS_FILE`.
 
-**CathDoit / PhilDoit logic**: If user leaves CathDoit blank → both use formula `=(D+E)/2`. If user enters a value → PhilDoit is auto-computed as `CathPaye + PhilPaye - CathDoit`. A balance check warns if totals don't match.
+**CathDoit / PhilDoit logic**: If user leaves CathDoit blank → both use formula `=(D+E)/2`. If user enters a value → PhilDoit is auto-computed as `CathPaye + PhilPaye - CathDoit`. A balance check warns if totals don't match. CathPaye/PhilPaye accept Google Sheets formulas (strings starting with `=`); in that case the suggestion, auto-computation, and balance check are skipped — the sheet evaluates everything. After insertion, cells are read back and any Sheets error (`#ERROR!` etc.) triggers an interactive re-entry loop.
 
 **Formulas written to sheet** (via `USER_ENTERED`): cumulative totals use `SUM($H$2:Hn)` with an absolute start to survive row insertions.

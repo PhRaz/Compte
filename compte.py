@@ -10,7 +10,7 @@ import tomllib
 from datetime import datetime, date, timedelta
 
 import gspread
-from prompt_toolkit import prompt
+from prompt_toolkit import prompt, PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.validation import Validator, ValidationError
@@ -86,6 +86,36 @@ def display_last_rows(rows):
         print(fmt_row(row))
     print(sep)
     print()
+
+
+def ask_action(n_lines):
+    """Affiche le menu en bas d'écran et retourne l'action via une touche unique."""
+    action = {'value': 'new'}
+    kb = KeyBindings()
+
+    def _bind(*keys, value):
+        for k in keys:
+            @kb.add(k)
+            def _(event, v=value):
+                action['value'] = v
+                event.app.exit()
+
+    _bind('s', 'S', value='sort')
+    _bind('n', 'N', value='lines')
+    _bind('q', 'Q', value='quit')
+    _bind('c-c', 'escape', value='quit')
+
+    @kb.add('enter')
+    def _(event):
+        action['value'] = 'new'
+        event.app.exit()
+
+    print(f"  [S] Trier par date  |  [N] Lignes : {n_lines}  |  [Entree] Nouvelle saisie  |  [Q] Quitter")
+    try:
+        PromptSession().prompt('  -> ', key_bindings=kb)
+    except (EOFError, KeyboardInterrupt):
+        action['value'] = 'quit'
+    return action['value']
 
 
 def connect_sheet():
@@ -359,9 +389,14 @@ def fix_formula_errors(ws, row_index, user_cols):
             print("  CathDoit et PhilDoit réinitialisés à la formule 50/50.")
 
 
-def saisir_ligne(ws):
+def sort_by_date(ws):
+    """Trie toutes les lignes de la feuille par date croissante via l'API Google Sheets."""
+    ws.sort((1, 'asc'))
+    print("  Lignes triées par date.")
+
+
+def saisir_ligne(ws, n_lines=10):
     """Saisie interactive d'une nouvelle ligne."""
-    display_last_rows(get_last_rows(ws))
     print("--- Nouvelle opération ---\n")
 
     # Récupération des valeurs existantes pour autocomplétion
@@ -456,7 +491,7 @@ def saisir_ligne(ws):
     user_cols = {COL_CATH_PAYE: "CathPaye", COL_PHIL_PAYE: "PhilPaye", COL_CATH_DOIT: "CathDoit"}
     fix_formula_errors(ws, new_row_index, user_cols)
 
-    display_last_rows(get_last_rows(ws))
+    display_last_rows(get_last_rows(ws, n_lines))
     print(f"  Ligne ajoutée (ligne {new_row_index}) ✓")
 
 
@@ -473,12 +508,29 @@ def main():
     print(f"Connecté à : {ws.spreadsheet.title} / {ws.title}")
     sync_recurrents(ws)
 
+    n_lines = 10
     while True:
         try:
-            saisir_ligne(ws)
-            again = prompt("\nAjouter une autre opération ? (O/n) : ").strip().lower()
-            if again == "n":
+            display_last_rows(get_last_rows(ws, n_lines))
+            action = ask_action(n_lines)
+
+            if action == 'quit':
+                print("\nAu revoir.")
                 break
+            elif action == 'sort':
+                confirm = prompt("  Trier toutes les lignes par date ? (o/N) : ").strip().lower()
+                if confirm == 'o':
+                    sort_by_date(ws)
+            elif action == 'lines':
+                raw = prompt(f"  Nombre de lignes à afficher [{n_lines}] : ").strip()
+                try:
+                    n = int(raw)
+                    if n > 0:
+                        n_lines = n
+                except ValueError:
+                    pass
+            else:
+                saisir_ligne(ws, n_lines)
         except KeyboardInterrupt:
             print("\nArrêt.")
             break
